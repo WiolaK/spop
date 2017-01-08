@@ -8,11 +8,14 @@ module Excel
     delete,
     cNum,
     cSum,
+    cMul,
+    cAvg,
     cStr
 ) where
 
 
 import qualified Data.Map as Map
+import qualified Data.List as List
 import Data.Maybe
 
 
@@ -37,11 +40,12 @@ newS a = Map.fromList a
 
 
 insert :: ((Int, Int), Cell) -> Spreadsheet -> Spreadsheet
-insert (p, (CSum v d o)) s = updateDep (p, nc)
-                                       (Map.insert p nc (createDeps p o s))
-    where nc = attachDep (p, (CSum v d o)) s
-insert (p, c) s = updateDep (p, nc) (Map.insert p nc s)
+insert (p, (CString v)) s = (Map.insert p (CString v) s)
+insert (p, (CNum v d)) s = updateDep (p, nc) (Map.insert p nc s)
+    where nc = attachDep (p, (CNum v d)) s
+insert (p, c) s = updateDep (p, nc) (Map.insert p nc (createDeps p o s))
     where nc = attachDep (p, c) s
+          o = dependsOn nc
 
 -- no dependencies
 insert2 :: ((Int, Int), Cell) -> Spreadsheet -> Spreadsheet
@@ -56,11 +60,13 @@ createDep :: (Int, Int) -> Cell -> Cell
 createDep _ (CString v) = cStr v
 createDep p (CNum v d) = CNum v (p:d)
 createDep p (CSum v d o) = CSum v (p:d) o
+createDep p (CMul v d o) = CMul v (p:d) o
+createDep p (CAvg v d o) = CAvg v (p:d) o
 
 createDepL :: [(Int, Int)] -> Cell -> Cell
 createDepL _ (CString v) = cStr v
-createDepL p (CNum v d) = CNum v (p++d)
-createDepL p (CSum v d o) = CSum v (p++d) o
+createDepL [] c = c
+createDepL (p:ps) c = createDepL ps (createDep p c)
 
 
 slookup :: [(Int, Int)] -> Spreadsheet -> [Cell]
@@ -74,10 +80,11 @@ catMaybePair [] = []
 catMaybePair ((a, Nothing):s) = catMaybePair s
 catMaybePair ((a, Just b):s) = (a, b):(catMaybePair s)
 
+
 cellValue :: Cell -> Maybe Double
-cellValue (CNum a []) = Just a
 cellValue (CString a) = Nothing
 cellValue a = Just (value a)
+
 
 
 attachDep :: ((Int, Int), Cell) -> Spreadsheet -> Cell
@@ -110,6 +117,8 @@ updateDepCell :: Cell -> Spreadsheet -> Cell
 updateDepCell (CString v) s = cStr v
 updateDepCell (CNum v d) s = CNum v d
 updateDepCell (CSum _ d o) s = cSumD d o s
+updateDepCell (CMul _ d o) s = cMulD d o s
+updateDepCell (CAvg _ d o) s = cAvgD d o s
 
 
 
@@ -124,8 +133,9 @@ delete p s | isNothing c = s
 
 delete2 :: ((Int, Int), Cell) -> Spreadsheet -> Spreadsheet
 delete2 (p, (CNum v d)) s = updateDep (p, (CNum v d)) (Map.delete p s)
-delete2 (p, (CSum v d o)) s = updateDep (p, (CSum v d o)) (Map.delete p (removeDeps p o s))
-delete2 (p, _) s = Map.delete p s
+delete2 (p, (CString _)) s = Map.delete p s
+delete2 (p, c) s = updateDep (p, c) (Map.delete p (removeDeps p o s))
+    where o = dependsOn c
 
 
 removeDeps :: (Int, Int) -> [(Int, Int)] -> Spreadsheet -> Spreadsheet
@@ -136,6 +146,8 @@ removeDep :: (Int, Int) -> Cell -> Cell
 removeDep p (CString v) = cStr v
 removeDep p (CNum v d) = CNum v (remove p d)
 removeDep p (CSum v d o) = CSum v (remove p d) o
+removeDep p (CMul v d o) = CMul v (remove p d) o
+removeDep p (CAvg v d o) = CAvg v (remove p d) o
 
 
 -- remove element from list
@@ -159,12 +171,22 @@ cSum a s = CSum (sum . catMaybes $ map cellValue (slookup a s)) [] a
 cSumD :: [(Int, Int)] -> [(Int, Int)] -> Spreadsheet -> Cell
 cSumD d o s = CSum (sum . catMaybes $ map cellValue (slookup o s)) d o
 
--- instance Show Cell where
---     show (CString a) = "CStr " ++ show a
---     show (CNum a _) = "CNum " ++ show a
---     show (CSum a _ _) = "CSum " ++ show a
---     show (CMul a _ _) = "CMul " ++ show a
---     show (CAvg a _ _) = "CAvg " ++ show a
+cMul :: [(Int, Int)] -> Spreadsheet -> Cell
+cMul a s = cMulD [] a s
+
+cMulD :: [(Int, Int)] -> [(Int, Int)] -> Spreadsheet -> Cell
+cMulD d o s = CMul (product . catMaybes $ map cellValue (slookup o s)) d o
+
+cAvg :: [(Int, Int)] -> Spreadsheet -> Cell
+cAvg a s = cAvgD [] a s
+
+cAvgD :: [(Int, Int)] -> [(Int, Int)] -> Spreadsheet -> Cell
+cAvgD d o s = CAvg (avg . catMaybes $ map cellValue (slookup o s)) d o
+
+
+avg :: (Real a, Fractional b) => [a] -> b
+avg a = realToFrac (sum a) / List.genericLength a
+
 
 
 {-
@@ -173,9 +195,9 @@ a = cNum 1
 b = cNum 2
 c = CString "a"
 s = Map.fromList [((0,0), a), ((0,1), b), ((0,2), c)]
-d = cSum [(0,0), (0,1), (0,2)] s
+d = cAvg [(0,0), (0,1), (0,2)] s
 ss = insert ((1,0), d) s
-e = cSum [(0,0), (0,1), (0,3), (1,0)] ss
+e = cAvg [(0,0), (0,1), (0,3), (1,0)] ss
 sss = insert ((2,0), e) ss
 
 delete (0,0) ss
@@ -218,5 +240,5 @@ ss = insert ((1,0), b) s
 c = cSum [(0,0), (1,0)] ss
 sss = insert ((2,0), c) ss
 
-
+wstawienie cstr zamiast komorki value nie aktualizuje komorek zaleznych
 -}
